@@ -421,6 +421,92 @@ fn test_enum_generation() {
     assert!(content.contains("to_symbol"), "Should convert to Ruby symbols");
 }
 
+/// Regression: a Ruby caller passing a bare variant name for an internally-tagged enum
+/// (e.g. `"disabled"`) must round-trip. The previous fallback chain only tried the raw
+/// string and a quoted JSON string, both of which a `#[serde(tag = ...)]` enum rejects.
+/// The constructor must also try the tagged form `{"<tag>": name}`.
+#[test]
+fn test_internally_tagged_enum_constructor_wraps_bare_string() {
+    let backend = MagnusBackend;
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "VlmFallbackPolicy".to_string(),
+            rust_path: "test_lib::VlmFallbackPolicy".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Disabled".to_string(),
+                    fields: vec![],
+                    doc: String::new(),
+                    is_default: true,
+                    serde_rename: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                    is_tuple: false,
+                    originally_had_data_fields: false,
+                    cfg: None,
+                    version: Default::default(),
+                },
+                EnumVariant {
+                    name: "OnLowQuality".to_string(),
+                    fields: vec![make_field(
+                        "quality_threshold",
+                        TypeRef::Primitive(PrimitiveType::F64),
+                        false,
+                    )],
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                    is_tuple: false,
+                    originally_had_data_fields: true,
+                    cfg: None,
+                    version: Default::default(),
+                },
+            ],
+            methods: vec![],
+            doc: String::new(),
+            cfg: None,
+            is_copy: false,
+            has_serde: true,
+            has_default: true,
+            serde_tag: Some("mode".to_string()),
+            serde_untagged: false,
+            serde_rename_all: Some("snake_case".to_string()),
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            excluded_variants: vec![],
+            version: Default::default(),
+        }],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let config = make_config();
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generate_bindings failed");
+    let lib = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("lib.rs"))
+        .expect("lib.rs generated");
+
+    assert!(
+        lib.content.contains(r#"serde_json::json!({ "mode": json_str })"#),
+        "internally-tagged enum constructor must try the tagged form {{\"mode\": json_str}};\ncontent:\n{}",
+        lib.content
+    );
+}
+
 #[test]
 fn test_generated_header() {
     let backend = MagnusBackend;

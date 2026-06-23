@@ -43,6 +43,11 @@ impl magnus::TryConvert for {{ enum_name }} {
         // If that fails, try treating it as a plain string value and wrap in quotes
         // If both fail, try as Custom variant (for untagged enum support)
         serde_json::from_str(&json_str)
+{%- if serde_tag %}
+{#- Internally-tagged enum: a bare variant name (e.g. "disabled") only deserializes when wrapped
+    as {"<tag>": name}; serde rejects the bare string and the quoted-string fallback below. -#}
+            .or_else(|_| serde_json::from_value(serde_json::json!({ "{{ serde_tag }}": json_str })))
+{%- endif %}
             .or_else(|_| serde_json::from_str(&format!("\"{json_str}\"")))
             .or_else(|_| {
                 // Try as a JSON string for Custom variant (untagged enums accept any remaining value)
