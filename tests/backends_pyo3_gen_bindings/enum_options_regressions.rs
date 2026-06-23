@@ -592,3 +592,92 @@ fn test_native_import_no_stray_blank_line_after_open_paren() {
         init_py.content
     );
 }
+
+/// Regression: an internally-tagged enum (`#[serde(tag = "...")]`) must accept a bare string
+/// for its unit variants. Previously the constructor encoded the string as a bare JSON string
+/// (`"disabled"`), which the tagged enum rejects — so `Enum("disabled")`, and any binding that
+/// builds a default from that string, raised `ValueError`. The constructor must wrap the bare
+/// string as `{"<tag>": "<variant>"}` so serde can parse it into the unit variant.
+#[test]
+fn test_internally_tagged_enum_constructor_wraps_bare_string() {
+    fn variant(name: &str, fields: Vec<FieldDef>, is_default: bool) -> EnumVariant {
+        EnumVariant {
+            name: name.to_string(),
+            originally_had_data_fields: !fields.is_empty(),
+            fields,
+            doc: String::new(),
+            is_default,
+            serde_rename: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            is_tuple: false,
+            cfg: None,
+            version: Default::default(),
+        }
+    }
+
+    let backend = Pyo3Backend;
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "VlmFallbackPolicy".to_string(),
+            rust_path: "test_lib::VlmFallbackPolicy".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                variant("Disabled", vec![], true),
+                variant(
+                    "OnLowQuality",
+                    vec![make_field(
+                        "quality_threshold",
+                        TypeRef::Primitive(PrimitiveType::F64),
+                        false,
+                    )],
+                    false,
+                ),
+                variant("Always", vec![], false),
+            ],
+            methods: vec![],
+            doc: String::new(),
+            cfg: None,
+            is_copy: false,
+            has_serde: true,
+            has_default: true,
+            serde_tag: Some("mode".to_string()),
+            serde_untagged: false,
+            serde_rename_all: Some("snake_case".to_string()),
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            excluded_variants: vec![],
+            version: Default::default(),
+        }],
+        errors: vec![],
+        excluded_type_paths: HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let config = make_config();
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generate_bindings failed");
+    let lib_rs = files
+        .iter()
+        .find(|f| f.path.ends_with("lib.rs"))
+        .expect("lib.rs should be generated");
+
+    assert!(
+        lib_rs.content.contains(r#"serde_json::json!({ "mode": s })"#),
+        "internally-tagged enum constructor must wrap a bare string as {{\"mode\": s}};\ncontent:\n{}",
+        lib_rs.content
+    );
+    assert!(
+        !lib_rs.content.contains("serde_json::to_string(&s)"),
+        "tagged enum must not encode the bare string directly (the bug);\ncontent:\n{}",
+        lib_rs.content
+    );
+}

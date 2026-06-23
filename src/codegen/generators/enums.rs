@@ -94,6 +94,7 @@ pub fn gen_pyo3_data_enum_with_mapper(
             string_methods_content => string_methods_content,
             variant_accessors_content => variant_accessors,
             serde_tag_content => serde_tag_content,
+            serde_tag => enum_def.serde_tag.as_deref(),
             factory_methods_content => factory_methods_content,
         },
     )
