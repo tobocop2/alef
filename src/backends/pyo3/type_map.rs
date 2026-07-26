@@ -81,3 +81,31 @@ pub fn python_type(ty: &TypeRef) -> String {
         TypeRef::Duration => "int".to_string(),
     }
 }
+
+/// Maps a TypeRef for a value the host *returns* to a trait bridge — a `Protocol` method the
+/// caller implements and PyO3 extracts from.
+///
+/// Numeric sequences widen to `Iterable[...]`: PyO3's `Vec<T>` extraction takes any
+/// `PySequence_Check` object, so `list[...]` rejects NumPy arrays the bridge handles fine.
+/// Parameters keep [`python_type`] — the bridge really does pass a `list`.
+///
+/// Numeric leaves only. `str` satisfies `Iterable[str]` but PyO3 rejects it, so widening
+/// `Vec<String>` would delete a real check. `str` is not an `Iterable[float]`.
+pub fn python_callback_return_type(ty: &TypeRef) -> String {
+    match ty {
+        TypeRef::Vec(inner) if has_numeric_leaf(inner) => {
+            format!("Iterable[{}]", python_callback_return_type(inner))
+        }
+        TypeRef::Optional(inner) => format!("{} | None", python_callback_return_type(inner)),
+        other => python_type(other),
+    }
+}
+
+/// True when `ty` is a numeric scalar, or nests down to one through `Vec`.
+fn has_numeric_leaf(ty: &TypeRef) -> bool {
+    match ty {
+        TypeRef::Primitive(_) => true,
+        TypeRef::Vec(inner) => has_numeric_leaf(inner),
+        _ => false,
+    }
+}
